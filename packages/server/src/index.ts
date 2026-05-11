@@ -4,6 +4,13 @@ import { cors } from "hono/cors";
 import { Server } from "socket.io";
 import { SHARED_VERSION } from "@wyr/shared";
 
+import type {
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData,
+} from "@wyr/shared";
+
 const PORT = Number(process.env.PORT) || 3001;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
 
@@ -28,7 +35,12 @@ const httpServer = serve(
   },
 );
 
-const io = new Server(httpServer, {
+const io = new Server<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+>(httpServer, {
   cors: { origin: CLIENT_ORIGIN },
 });
 
