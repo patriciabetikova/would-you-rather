@@ -1,16 +1,23 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import { SocketProvider } from "./socket";
+import { fakeServer, createFakeSocket } from "./fake-socket";
+import App from "./App";
 import "./index.css";
-import App from "./App.tsx";
-import { fakeServer } from "./fake-socket";
 
 if (import.meta.env.DEV) {
-  (window as unknown as { fakeServer: typeof fakeServer }).fakeServer =
-    fakeServer;
+  const w = window as unknown as Record<string, unknown>;
+  w.fakeServer = fakeServer;
+  w.createFakeSocket = createFakeSocket;
 }
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <BrowserRouter>
+      <SocketProvider>
+        <App />
+      </SocketProvider>
+    </BrowserRouter>
   </StrictMode>,
 );
