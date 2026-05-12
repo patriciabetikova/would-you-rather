@@ -25,10 +25,78 @@ import type {
   RoomJoinPayload,
   RoomJoinResponse,
   SocketError,
+  RoundResults,
+  VoteOption,
+  VoteSubmitPayload,
 } from "@wyr/shared";
 
 const SIMULATED_LATENCY_MS = 80;
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // omit lookalikes
+const ROUND_RESULTS_PAUSE_MS = 5000;
+
+// Seed pool of public-pool questions. In production these come from Postgres.
+const SEED_QUESTIONS: { optionA: string; optionB: string }[] = [
+  { optionA: "have super speed", optionB: "be able to fly" },
+  { optionA: "be invisible at will", optionB: "be able to read minds" },
+  { optionA: "live without music", optionB: "live without movies" },
+  { optionA: "have unlimited pizza", optionB: "have unlimited tacos" },
+  { optionA: "never feel cold again", optionB: "never feel hot again" },
+  { optionA: "be famous but poor", optionB: "be rich but unknown" },
+  {
+    optionA: "always know when someone is lying",
+    optionB: "always get away with lying",
+  },
+  {
+    optionA: "have a rewind button for your life",
+    optionB: "have a pause button for your life",
+  },
+  {
+    optionA: "be able to talk to animals",
+    optionB: "be able to speak every human language",
+  },
+  { optionA: "live in a treehouse", optionB: "live on a houseboat" },
+  { optionA: "never need sleep", optionB: "never need to eat" },
+  { optionA: "visit the past", optionB: "visit the future" },
+  {
+    optionA: "be the smartest person alive",
+    optionB: "be the strongest person alive",
+  },
+  { optionA: "have free Wi-Fi anywhere", optionB: "have free coffee anywhere" },
+  {
+    optionA: "always be 10 minutes early",
+    optionB: "always be 10 minutes late",
+  },
+  { optionA: "work from a beach", optionB: "work from a mountain cabin" },
+  { optionA: "have a great memory", optionB: "have great instincts" },
+  { optionA: "be a famous athlete", optionB: "be a famous musician" },
+  { optionA: "lose all your photos", optionB: "lose all your messages" },
+  { optionA: "control fire", optionB: "control water" },
+  { optionA: "have a pet dragon", optionB: "have a pet unicorn" },
+  {
+    optionA: "spend a week in space",
+    optionB: "spend a week in the deep ocean",
+  },
+  {
+    optionA: "meet your favorite musician",
+    optionB: "meet your favorite author",
+  },
+  {
+    optionA: "live without a phone for a year",
+    optionB: "live without TV for a year",
+  },
+  { optionA: "be excellent at one thing", optionB: "be good at many things" },
+  { optionA: "be the best villain", optionB: "be the second-best hero" },
+  {
+    optionA: "live where it always snows",
+    optionB: "live where it never rains",
+  },
+  { optionA: "have endless free time", optionB: "have endless money" },
+  { optionA: "always tell the truth", optionB: "never have to apologize" },
+  {
+    optionA: "never use the internet again",
+    optionB: "never travel further than 100 km",
+  },
+];
 
 function delay(fn: () => void) {
   setTimeout(fn, SIMULATED_LATENCY_MS);
@@ -64,6 +132,9 @@ class FakeServerImpl {
   private rooms = new Map<string, Room>();
   private connections = new Map<string, Connection>();
   private connByPlayer = new Map<string, string>();
+  private gameQuestions = new Map<string, Question[]>();
+  private votesInProgress = new Map<string, Map<string, VoteOption>>();
+  private roundTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private handleUpdateSettings(
     conn: Connection,
     payload: Partial<GameSettings>,
@@ -206,6 +277,15 @@ class FakeServerImpl {
       );
       return;
     }
+    if (room.status !== "lobby") {
+      delay(() =>
+        ack({
+          ok: false,
+          error: err("GAME_ALREADY_STARTED", "Game already in progress"),
+        }),
+      );
+      return;
+    }
     if (room.players.length < MIN_PLAYERS_TO_START) {
       delay(() =>
         ack({
@@ -234,12 +314,15 @@ class FakeServerImpl {
       }
     }
 
-    // TODO: Wire up actual round progression in the next step.
-    room.status = "in-progress";
-
     delay(() => {
       ack({ ok: true });
-      this.broadcastRoomState(conn.roomCode!);
+
+      room.status = "in-progress";
+      room.roundNumber = 0;
+      for (const p of room.players) p.score = 0;
+
+      this.prepareQuestions(room);
+      this.startRound(conn.roomCode!);
     });
   }
 
@@ -286,6 +369,12 @@ class FakeServerImpl {
         );
       case "game:start":
         return this.handleGameStart(conn, args[0] as (r: Ack) => void);
+      case "vote:submit":
+        return this.handleVoteSubmit(
+          conn,
+          args[0] as VoteSubmitPayload,
+          args[1] as (r: Ack) => void,
+        );
       default:
         console.warn(`[FakeServer] Unhandled event: ${event}`);
     }
@@ -480,6 +569,237 @@ class FakeServerImpl {
 
   getAllRooms(): Room[] {
     return [...this.rooms.values()];
+  }
+
+  private handleVoteSubmit(
+    conn: Connection,
+    payload: VoteSubmitPayload,
+    ack: (r: Ack) => void,
+  ): void {
+    if (!conn.roomCode || !conn.playerId) {
+      delay(() =>
+        ack({ ok: false, error: err("NOT_IN_ROOM", "You are not in a room") }),
+      );
+      return;
+    }
+    const room = this.rooms.get(conn.roomCode);
+    if (!room) {
+      delay(() =>
+        ack({
+          ok: false,
+          error: err("ROOM_NOT_FOUND", "Room no longer exists"),
+        }),
+      );
+      return;
+    }
+    if (!room.currentRound || room.currentRound.status !== "voting") {
+      delay(() =>
+        ack({
+          ok: false,
+          error: err("VOTE_TOO_LATE", "Voting has ended for this round"),
+        }),
+      );
+      return;
+    }
+    if (payload.option !== "A" && payload.option !== "B") {
+      delay(() =>
+        ack({ ok: false, error: err("INVALID_VOTE", "Invalid option") }),
+      );
+      return;
+    }
+
+    const votes =
+      this.votesInProgress.get(conn.roomCode) ?? new Map<string, VoteOption>();
+    votes.set(conn.playerId, payload.option);
+    this.votesInProgress.set(conn.roomCode, votes);
+
+    if (!room.currentRound.votedPlayerIds.includes(conn.playerId)) {
+      room.currentRound.votedPlayerIds.push(conn.playerId);
+    }
+
+    delay(() => {
+      ack({ ok: true });
+      this.broadcastRoomState(conn.roomCode!);
+
+      // End round early if everyone has voted
+      if (room.currentRound!.votedPlayerIds.length >= room.players.length) {
+        this.endRound(conn.roomCode!);
+      }
+    });
+  }
+
+  private prepareQuestions(room: Room): void {
+    const pool: Question[] = [];
+
+    if (
+      room.settings.questionSource === "public" ||
+      room.settings.questionSource === "both"
+    ) {
+      for (const seed of SEED_QUESTIONS) {
+        pool.push({
+          id: randomId("q"),
+          optionA: seed.optionA,
+          optionB: seed.optionB,
+          categoryId: null,
+          isCustom: false,
+        });
+      }
+    }
+    if (
+      room.settings.questionSource === "custom" ||
+      room.settings.questionSource === "both"
+    ) {
+      pool.push(...room.customQuestions.map((q) => ({ ...q })));
+    }
+
+    // Fisher-Yates shuffle
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j]!, pool[i]!];
+    }
+
+    this.gameQuestions.set(room.code, pool);
+  }
+
+  private startRound(roomCode: string): void {
+    const room = this.rooms.get(roomCode);
+    if (!room) return;
+
+    const pool = this.gameQuestions.get(roomCode);
+    const question = pool?.shift();
+    if (!question) {
+      this.endGame(roomCode);
+      return;
+    }
+
+    const now = Date.now();
+    const endsAt = now + room.settings.roundLengthSeconds * 1000;
+
+    room.roundNumber += 1;
+    room.currentRound = {
+      questionId: question.id,
+      question,
+      status: "voting",
+      startedAt: now,
+      endsAt,
+      votedPlayerIds: [],
+      results: null,
+    };
+
+    this.votesInProgress.set(roomCode, new Map());
+
+    this.broadcastToRoom(roomCode, "round:started", {
+      roundNumber: room.roundNumber,
+      totalRounds: room.settings.numberOfRounds,
+      round: {
+        ...room.currentRound,
+        question: { ...question },
+      },
+    });
+    this.broadcastRoomState(roomCode);
+
+    const timerId = setTimeout(() => {
+      this.endRound(roomCode);
+    }, room.settings.roundLengthSeconds * 1000);
+    this.roundTimers.set(roomCode, timerId);
+  }
+
+  private endRound(roomCode: string): void {
+    const room = this.rooms.get(roomCode);
+    if (!room || !room.currentRound) return;
+    if (room.currentRound.status !== "voting") return; // already ended
+
+    const timerId = this.roundTimers.get(roomCode);
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+      this.roundTimers.delete(roomCode);
+    }
+
+    const voteMap =
+      this.votesInProgress.get(roomCode) ?? new Map<string, VoteOption>();
+    const votes: Record<string, VoteOption> = {};
+    let tallyA = 0;
+    let tallyB = 0;
+    for (const [pid, option] of voteMap.entries()) {
+      votes[pid] = option;
+      if (option === "A") tallyA += 1;
+      else tallyB += 1;
+    }
+    const results: RoundResults = { votes, tallyA, tallyB };
+
+    // Scoring: +1 if you voted with the majority. Ties: no points.
+    const majority: VoteOption | null =
+      tallyA > tallyB ? "A" : tallyB > tallyA ? "B" : null;
+    if (majority) {
+      for (const player of room.players) {
+        if (votes[player.id] === majority) {
+          player.score += 1;
+        }
+      }
+    }
+
+    room.currentRound.status = "revealed";
+    room.currentRound.results = results;
+
+    this.broadcastToRoom(roomCode, "round:ended", {
+      roundNumber: room.roundNumber,
+      question: { ...room.currentRound.question },
+      results,
+    });
+    this.broadcastRoomState(roomCode);
+
+    setTimeout(() => {
+      const r = this.rooms.get(roomCode);
+      if (!r) return;
+      if (r.roundNumber >= r.settings.numberOfRounds) {
+        this.endGame(roomCode);
+      } else {
+        this.startRound(roomCode);
+      }
+    }, ROUND_RESULTS_PAUSE_MS);
+  }
+
+  private endGame(roomCode: string): void {
+    const room = this.rooms.get(roomCode);
+    if (!room) return;
+
+    room.status = "finished";
+    room.currentRound = null;
+
+    const timerId = this.roundTimers.get(roomCode);
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+      this.roundTimers.delete(roomCode);
+    }
+    this.votesInProgress.delete(roomCode);
+    this.gameQuestions.delete(roomCode);
+
+    const sorted = [...room.players].sort((a, b) => b.score - a.score);
+    const finalScores = sorted.map((p, i) => ({
+      playerId: p.id,
+      nickname: p.nickname,
+      score: p.score,
+      rank: i + 1,
+    }));
+
+    this.broadcastToRoom(roomCode, "game:ended", { finalScores });
+    this.broadcastRoomState(roomCode);
+  }
+
+  private broadcastToRoom(
+    roomCode: string,
+    event: string,
+    payload: unknown,
+  ): void {
+    const room = this.rooms.get(roomCode);
+    if (!room) return;
+    for (const player of room.players) {
+      const connId = this.connByPlayer.get(player.id);
+      if (connId) {
+        const conn = this.connections.get(connId);
+        conn?.emit(event, payload);
+      }
+    }
   }
 }
 
