@@ -6,8 +6,9 @@ import {
   ROOM_CODE_LENGTH,
 } from "@wyr/shared";
 import { useSocket, usePlayerId } from "../socket";
+import { QuestionModal } from "../components/QuestionModal";
 
-type Mode = "idle" | "host" | "join" | "contribute";
+type Mode = "idle" | "host" | "join";
 
 export function HomePage() {
   const socket = useSocket();
@@ -19,6 +20,7 @@ export function HomePage() {
   const [roomCode, setRoomCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [contributeOpen, setContributeOpen] = useState(false);
 
   const reset = () => {
     setError(null);
@@ -91,7 +93,7 @@ export function HomePage() {
               Join a room
             </button>
             <button
-              onClick={() => setMode("contribute")}
+              onClick={() => setContributeOpen(true)}
               className="w-full py-3 text-slate-600 hover:text-slate-900 transition-colors text-sm"
             >
               Add questions to the pool
@@ -192,21 +194,11 @@ export function HomePage() {
           </form>
         )}
 
-        {mode === "contribute" && (
-          <div className="space-y-4 text-center">
-            <h2 className="text-2xl font-bold">Add questions</h2>
-            <p className="text-slate-600">
-              Question contribution modal lands here in the next step.
-            </p>
-            <button
-              onClick={reset}
-              className="text-sm text-slate-600 hover:text-slate-900"
-            >
-              ← Back
-            </button>
-          </div>
-        )}
-
+        <QuestionModal
+          isOpen={contributeOpen}
+          onClose={() => setContributeOpen(false)}
+          scope="public"
+        />
         {error && (
           <div className="mt-6 p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg text-sm">
             {error}
