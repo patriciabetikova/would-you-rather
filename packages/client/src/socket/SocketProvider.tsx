@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { io } from "socket.io-client";
 import type { Room } from "@wyr/shared";
-import { createFakeSocket } from "../fake-socket";
 import { SocketContext, type Socket } from "./context";
 
-// Module-level singleton, created on first access.
-// Persists for the page lifetime — same lifecycle a real socket.io
-// connection would have. Created lazily so module load is cheap.
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL ?? "http://localhost:3001";
+
+// Module-level singleton. socket.io-client handles connection lifecycle,
+// automatic reconnection, and event ordering for us.
 let socketInstance: Socket | null = null;
 
 function getSocketInstance(): Socket {
   if (socketInstance === null) {
-    socketInstance = createFakeSocket();
+    socketInstance = io(SOCKET_URL, {
+      autoConnect: true,
+    });
   }
   return socketInstance;
 }
@@ -25,9 +28,6 @@ export function SocketProvider({ children }: SocketProviderProps) {
   const [playerId, setPlayerId] = useState<string | null>(null);
 
   useEffect(() => {
-    // setState happens inside the room:state callback — exactly the
-    // "subscribe and update state from the subscription" pattern
-    // React 19's lint rules want.
     const handleRoomState = (r: Room) => setRoom(r);
     socket.on("room:state", handleRoomState);
     return () => {

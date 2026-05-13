@@ -1,9 +1,15 @@
 import { createContext, useContext } from "react";
-import type { Room } from "@wyr/shared";
-import type { FakeSocket } from "../fake-socket";
+import type { Socket as IOSocket } from "socket.io-client";
+import type {
+  ClientToServerEvents,
+  Room,
+  ServerToClientEvents,
+} from "@wyr/shared";
 
-// When we swap in the real socket in Phase 4, this is the only line that changes.
-export type Socket = FakeSocket;
+// Note the parameter order: ServerToClientEvents first, ClientToServerEvents
+// second. Socket.IO inverts it on the client side because the client *receives*
+// server-to-client events and *emits* client-to-server events.
+export type Socket = IOSocket<ServerToClientEvents, ClientToServerEvents>;
 
 export interface SocketContextValue {
   socket: Socket;
