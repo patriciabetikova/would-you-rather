@@ -20,7 +20,7 @@ import type {
   VoteOption,
 } from "@wyr/shared";
 import { createRoom, randomId, rooms, snapshotRoom } from "./room-store";
-import { prepareGameQuestions } from "./questions";
+import { insertPublicQuestion, prepareGameQuestions } from "./db/queries";
 
 type WyrServer = Server<
   ClientToServerEvents,
@@ -169,7 +169,7 @@ export function registerSocketHandlers(io: WyrServer, socket: WyrSocket): void {
     broadcastRoomState(io, roomCode);
   });
 
-  socket.on("question:submit", (payload, ack) => {
+  socket.on("question:submit", async (payload, ack) => {
     const a = payload.optionA.trim();
     const b = payload.optionB.trim();
     if (
@@ -196,9 +196,20 @@ export function registerSocketHandlers(io: WyrServer, socket: WyrSocket): void {
     };
 
     if (payload.scope === "public") {
-      // TODO: persist to Supabase in the next step.
-      console.log("[server] public question submitted:", question);
-      return ack({ ok: true });
+      try {
+        await insertPublicQuestion({
+          optionA: a,
+          optionB: b,
+          categoryId: payload.categoryId,
+        });
+        return ack({ ok: true });
+      } catch (e) {
+        console.error("[server] failed to persist public question:", e);
+        return ack({
+          ok: false,
+          error: err("INTERNAL_ERROR", "Could not save your question"),
+        });
+      }
     }
 
     const { roomCode, playerId } = socket.data;
@@ -217,7 +228,7 @@ export function registerSocketHandlers(io: WyrServer, socket: WyrSocket): void {
     broadcastRoomState(io, roomCode);
   });
 
-  socket.on("game:start", (ack) => {
+  socket.on("game:start", async (ack) => {
     const { roomCode, playerId } = socket.data;
     if (!roomCode || !playerId) {
       return ack({ ok: false, error: err("NOT_IN_ROOM", "Not in a room") });
@@ -264,7 +275,7 @@ export function registerSocketHandlers(io: WyrServer, socket: WyrSocket): void {
     room.status = "in-progress";
     room.roundNumber = 0;
     for (const p of room.players) p.score = 0;
-    gameQuestions.set(roomCode, prepareGameQuestions(room));
+    gameQuestions.set(roomCode, await prepareGameQuestions(room));
 
     startRound(io, roomCode);
   });
