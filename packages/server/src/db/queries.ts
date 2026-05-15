@@ -94,3 +94,10 @@ export async function rateQuestion(
       .where(eq(questions.id, questionId));
   }
 }
+
+export async function incrementTimesShown(questionId: string): Promise<void> {
+  await db
+    .update(questions)
+    .set({ timesShown: sql`${questions.timesShown} + 1` })
+    .where(eq(questions.id, questionId));
+}

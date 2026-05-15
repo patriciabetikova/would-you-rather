@@ -21,6 +21,7 @@ import type {
 } from "@wyr/shared";
 import { createRoom, randomId, rooms, snapshotRoom } from "./room-store";
 import {
+  incrementTimesShown,
   insertPublicQuestion,
   prepareGameQuestions,
   rateQuestion,
@@ -380,6 +381,12 @@ function startRound(io: WyrServer, roomCode: string): void {
 
   const pool = gameQuestions.get(roomCode);
   const question = pool?.shift();
+  if (question && !question.isCustom) {
+    // Fire-and-forget — don't block the round on this DB write
+    incrementTimesShown(question.id).catch((err) =>
+      console.error("[server] failed to increment timesShown:", err),
+    );
+  }
   if (!question) {
     endGame(io, roomCode);
     return;
