@@ -30,6 +30,8 @@ export type QuestionSource = "public" | "custom" | "both";
 
 export type SelectionMode = "random" | "popular";
 
+export type QuestionRating = "up" | "down";
+
 export interface Player {
   id: string;
   nickname: string;
@@ -99,6 +101,11 @@ export interface Room {
   roundNumber: number; // 0 while in lobby
   customQuestions: Question[]; // room-scoped, ephemeral
   createdAt: number;
+}
+
+export interface QuestionRatePayload {
+  questionId: string;
+  rating: QuestionRating;
 }
 
 // ============================================================
@@ -222,6 +229,11 @@ export interface ClientToServerEvents {
 
   "question:submit": (
     payload: QuestionSubmitPayload,
+    ack: (response: Ack) => void,
+  ) => void;
+
+  "question:rate": (
+    payload: QuestionRatePayload,
     ack: (response: Ack) => void,
   ) => void;
 }

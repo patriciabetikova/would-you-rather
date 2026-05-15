@@ -26,6 +26,12 @@ export function SettingsSummary({ settings }: SettingsSummaryProps) {
             Contribution required
           </span>
         )}
+        {(settings.questionSource === "public" ||
+          settings.questionSource === "both") && (
+          <span className="px-2 py-1 bg-slate-100 rounded text-slate-700 capitalize">
+            {settings.selectionMode === "popular" ? "Most popular" : "Random"}
+          </span>
+        )}
       </div>
     </div>
   );

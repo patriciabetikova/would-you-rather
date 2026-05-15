@@ -20,7 +20,11 @@ import type {
   VoteOption,
 } from "@wyr/shared";
 import { createRoom, randomId, rooms, snapshotRoom } from "./room-store";
-import { insertPublicQuestion, prepareGameQuestions } from "./db/queries";
+import {
+  insertPublicQuestion,
+  prepareGameQuestions,
+  rateQuestion,
+} from "./db/queries";
 
 type WyrServer = Server<
   ClientToServerEvents,
@@ -315,6 +319,28 @@ export function registerSocketHandlers(io: WyrServer, socket: WyrSocket): void {
   socket.on("disconnect", (reason) => {
     console.log(`[socket] disconnected: ${socket.id} (${reason})`);
     handleLeave(io, socket);
+  });
+
+  socket.on("question:rate", async (payload, ack) => {
+    if (
+      !payload?.questionId ||
+      (payload.rating !== "up" && payload.rating !== "down")
+    ) {
+      return ack({
+        ok: false,
+        error: err("INVALID_VOTE", "Invalid rating payload"),
+      });
+    }
+    try {
+      await rateQuestion(payload.questionId, payload.rating);
+      ack({ ok: true });
+    } catch (e) {
+      console.error("[server] failed to rate question:", e);
+      ack({
+        ok: false,
+        error: err("INTERNAL_ERROR", "Could not save rating"),
+      });
+    }
   });
 }
 

@@ -1,4 +1,4 @@
-import type { GameSettings, QuestionSource } from "@wyr/shared";
+import type { GameSettings, QuestionSource, SelectionMode } from "@wyr/shared";
 
 interface SettingsPanelProps {
   settings: GameSettings;
@@ -13,6 +13,10 @@ const SOURCES: { value: QuestionSource; label: string }[] = [
   { value: "public", label: "Public" },
   { value: "custom", label: "Custom" },
   { value: "both", label: "Both" },
+];
+const SELECTION_MODES: { value: SelectionMode; label: string }[] = [
+  { value: "random", label: "Random" },
+  { value: "popular", label: "Most popular" },
 ];
 
 export function SettingsPanel({
@@ -54,6 +58,16 @@ export function SettingsPanel({
           onChange={(v) => onChange({ questionSource: v })}
           editable={editable}
         />
+        {(settings.questionSource === "public" ||
+          settings.questionSource === "both") && (
+          <Segmented
+            label="Public question selection"
+            options={SELECTION_MODES}
+            value={settings.selectionMode}
+            onChange={(v) => onChange({ selectionMode: v })}
+            editable={editable}
+          />
+        )}
         <label className="flex items-center justify-between pt-1">
           <span className="text-sm text-slate-700">
             Require every player to contribute

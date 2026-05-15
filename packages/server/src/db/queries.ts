@@ -77,3 +77,20 @@ export async function insertPublicQuestion(input: {
     submitterNickname: input.submitterNickname ?? null,
   });
 }
+
+export async function rateQuestion(
+  questionId: string,
+  rating: "up" | "down",
+): Promise<void> {
+  if (rating === "up") {
+    await db
+      .update(questions)
+      .set({ ratingUp: sql`${questions.ratingUp} + 1` })
+      .where(eq(questions.id, questionId));
+  } else {
+    await db
+      .update(questions)
+      .set({ ratingDown: sql`${questions.ratingDown} + 1` })
+      .where(eq(questions.id, questionId));
+  }
+}

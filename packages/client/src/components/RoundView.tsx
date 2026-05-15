@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Player, Room, Round, VoteOption } from "@wyr/shared";
 import { usePlayerId, useSocket } from "../socket";
+import type { QuestionRating } from "@wyr/shared";
 
 interface RoundViewProps {
   room: Room;
@@ -19,10 +20,15 @@ export function RoundView({ room, round }: RoundViewProps) {
   const [timeLeft, setTimeLeft] = useState(() =>
     Math.max(0, round.endsAt - Date.now()),
   );
+  const [myRating, setMyRating] = useState<QuestionRating | null>(null);
 
   // Reset local vote when the round changes
   useEffect(() => {
     setMyVote(null);
+  }, [round.questionId]);
+
+  useEffect(() => {
+    setMyRating(null);
   }, [round.questionId]);
 
   // Tick the countdown
@@ -45,6 +51,18 @@ export function RoundView({ room, round }: RoundViewProps) {
         setMyVote(null);
       }
     });
+  };
+
+  const handleRate = (rating: QuestionRating) => {
+    if (myRating !== null) return;
+    setMyRating(rating); // optimistic
+    socket.emit(
+      "question:rate",
+      { questionId: round.question.id, rating },
+      (response) => {
+        if (!response.ok) setMyRating(null);
+      },
+    );
   };
 
   const handleLeave = () => {
@@ -126,6 +144,42 @@ export function RoundView({ room, round }: RoundViewProps) {
               <>
                 {votedCount}/{totalPlayers} have voted
               </>
+            )}
+          </div>
+        )}
+        {isRevealed && !round.question.isCustom && (
+          <div className="flex items-center justify-center gap-2 mb-6">
+            <span className="text-sm text-slate-600 mr-1">
+              Rate this question:
+            </span>
+            <button
+              type="button"
+              onClick={() => handleRate("up")}
+              disabled={myRating !== null}
+              className={`px-3 py-1.5 rounded-lg border transition-all text-lg ${
+                myRating === "up"
+                  ? "bg-emerald-50 border-emerald-500"
+                  : "border-slate-300 hover:bg-slate-100"
+              } disabled:cursor-default`}
+              aria-label="Like this question"
+            >
+              👍
+            </button>
+            <button
+              type="button"
+              onClick={() => handleRate("down")}
+              disabled={myRating !== null}
+              className={`px-3 py-1.5 rounded-lg border transition-all text-lg ${
+                myRating === "down"
+                  ? "bg-red-50 border-red-500"
+                  : "border-slate-300 hover:bg-slate-100"
+              } disabled:cursor-default`}
+              aria-label="Dislike this question"
+            >
+              👎
+            </button>
+            {myRating !== null && (
+              <span className="text-xs text-slate-500 ml-1">Thanks!</span>
             )}
           </div>
         )}
