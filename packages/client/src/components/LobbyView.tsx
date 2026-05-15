@@ -5,6 +5,7 @@ import type { GameSettings, Player, Room } from "@wyr/shared";
 import { usePlayerId, useSocket } from "../socket";
 import { QuestionModal } from "./QuestionModal";
 import { SettingsPanel } from "./SettingsPanel";
+import { SettingsSummary } from "./SettingsSummary";
 
 interface LobbyViewProps {
   room: Room;
@@ -15,6 +16,7 @@ export function LobbyView({ room, me }: LobbyViewProps) {
   const navigate = useNavigate();
   const socket = useSocket();
   const [, setPlayerId] = usePlayerId();
+  const [copied, setCopied] = useState(false);
 
   const [contributeOpen, setContributeOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -50,6 +52,16 @@ export function LobbyView({ room, me }: LobbyViewProps) {
       await navigator.clipboard.writeText(room.code);
     } catch {
       // ignore
+    }
+  };
+  const handleCopyLink = async () => {
+    const url = `${window.location.origin}/room/${room.code}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API can be unavailable in some browsers/contexts
     }
   };
 
@@ -90,8 +102,25 @@ export function LobbyView({ room, me }: LobbyViewProps) {
                 onClick={handleCopyCode}
                 className="ml-auto px-4 py-2 text-sm text-slate-600 hover:text-slate-900 border border-slate-300 rounded-lg"
               >
-                Copy
+                Copy Code
               </button>
+              <button
+                onClick={handleCopyLink}
+                className="ml-auto px-4 py-2 text-sm border border-slate-300 rounded-lg transition-colors min-w-20 text-center"
+              >
+                {copied ? (
+                  <span className="text-emerald-600 font-semibold">
+                    Copied!
+                  </span>
+                ) : (
+                  <span className="text-slate-600 hover:text-slate-900">
+                    Copy Link
+                  </span>
+                )}
+              </button>
+              <p className="text-sm text-slate-600 mb-2">
+                Share this link or code with friends:
+              </p>
             </div>
           </div>
 
@@ -135,12 +164,16 @@ export function LobbyView({ room, me }: LobbyViewProps) {
             </ul>
           </div>
 
-          <SettingsPanel
-            settings={room.settings}
-            isHost={isHost}
-            disabled={room.status !== "lobby"}
-            onChange={handleSettingsChange}
-          />
+          {isHost ? (
+            <SettingsPanel
+              settings={room.settings}
+              isHost={isHost}
+              disabled={room.status !== "lobby"}
+              onChange={handleSettingsChange}
+            />
+          ) : (
+            <SettingsSummary settings={room.settings} />
+          )}
 
           <button
             onClick={() => setContributeOpen(true)}

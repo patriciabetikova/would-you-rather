@@ -1,4 +1,5 @@
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { JoinViaLinkView } from "../components/JoinViaLinkView";
 import { LobbyView } from "../components/LobbyView";
 import { RoundView } from "../components/RoundView";
 import { ScoreboardView } from "../components/ScoreboardView";
@@ -6,23 +7,22 @@ import { usePlayerId, useRoom } from "../socket";
 
 export function RoomPage() {
   const { code } = useParams<{ code: string }>();
-  const navigate = useNavigate();
   const room = useRoom();
   const [playerId] = usePlayerId();
 
+  // Visited via a link (or refreshed page): no player identity yet.
+  // Prompt for nickname using the code from the URL.
+  if (!playerId && code) {
+    return <JoinViaLinkView code={code} />;
+  }
+
   const me = room?.players.find((p) => p.id === playerId);
 
-  if (!room || !playerId || !me) {
+  // Have a playerId but room state hasn't arrived yet — brief loading
+  if (!room || !me) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
-        <h1 className="text-2xl font-bold mb-2">Room {code}</h1>
-        <p className="text-slate-600 mb-6">You haven't joined this room.</p>
-        <button
-          onClick={() => navigate("/")}
-          className="px-6 py-3 bg-slate-900 text-white rounded-lg font-semibold hover:bg-slate-700"
-        >
-          Back to home
-        </button>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p className="text-slate-600 text-sm">Connecting…</p>
       </div>
     );
   }
@@ -30,11 +30,9 @@ export function RoomPage() {
   if (room.status === "lobby") {
     return <LobbyView room={room} me={me} />;
   }
-
   if (room.status === "in-progress" && room.currentRound) {
     return <RoundView room={room} round={room.currentRound} me={me} />;
   }
-
   if (room.status === "finished") {
     return <ScoreboardView room={room} me={me} />;
   }
